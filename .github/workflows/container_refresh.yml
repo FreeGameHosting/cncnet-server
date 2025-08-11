@@ -1,0 +1,106 @@
+name: container_refresh
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      cncnet_server_version:
+        description: 'The CnCNet server version'
+        required: true
+        default: 'latest'
+        type: string
+  schedule:
+    - cron: "20 2 * * *"
+
+permissions:
+  contents: read
+  packages: write
+  attestations: write
+  id-token: write
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+    steps:
+
+      - name: Generate the container tags
+        id: release_details
+        run: >-
+          tag_versions=$(gh release list \
+              --repo https://github.com/Rans4ckeR/cncnet-server \
+              --json name,isDraft,isPrerelease \
+              --jq '.[] | select(.isPrerelease != true) | select(.isDraft != true) | .name' \
+            | awk -v "VERSION=${VERSION:=latest}" \
+              'NR == 1 && VERSION == "latest" { version = $1 " " VERSION }
+              $1 == VERSION { version = $1 " " VERSION }
+              END { print version }');
+
+          test -z "${tag_versions}"
+          && exit 1;
+
+          printf "container_tags=${REGISTRY,,}:%s,${REGISTRY,,}:%s\n" ${tag_versions} >> "$GITHUB_OUTPUT";
+          printf "container_labels<<EOF\norg.opencontainers.image.version=%s\norg.opencontainers.image.created=%s\nEOF\n" "${tag_versions/ */}" "${{ github.event.head_commit.timestamp }}" >> "$GITHUB_OUTPUT";
+          printf "container_build_version=%s\n" "${tag_versions/ */}" >> "$GITHUB_OUTPUT";
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
+          VERSION: ${{ inputs.cncnet_server_version }}
+
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Login to gscr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the Container image
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile-alpine
+          push: true
+          tags: ${{ steps.release_details.outputs.container_tags }}
+          labels: ${{ steps.release_details.outputs.container_labels }}
+          build-args: |
+            VERSION=${{ steps.release_details.outputs.container_build_version }}
+
+      - name: Generate artifact attestation
+        if: ${{ ! github.event.repository.private }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  cleanup-old-container-versions:
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+
+      - name: Delete old container versions
+        uses: actions/delete-package-versions@v5
+        with: 
+          package-name: ${{ github.event.repository.name }}
+          package-type: 'container'
+          min-versions-to-keep: 0
+          delete-only-untagged-versions: 'true'

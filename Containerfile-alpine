@@ -1,0 +1,54 @@
+FROM alpine:latest as builder
+
+ARG BASE_URL=https://github.com/Rans4ckeR/cncnet-server/releases
+ARG VERSION=latest
+
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=true
+
+LABEL maintainer="Yorick Gruijthuijzen <yorick-1989@hotmail.com>" \
+      org.opencontainers.image.authors="Yorick Gruijthuijzen <yorick-1989@hotmail.com>"  \
+      org.opencontainers.image.title="CnCNet tunnel server" \
+      org.opencontainers.image.description="CnCNet tunnel server" \
+      org.opencontainers.image.licenses="GPL-3.0 license" \
+      org.opencontainers.image.url="https://github.com/FreeGameHosting/cncnet-server" \
+      org.opencontainers.image.source="https://github.com/FreeGameHosting/cncnet-server" \
+      org.opencontainers.image.documentation="https://github.com/FreeGameHosting/cncnet-server"
+
+# System prerequisites
+RUN apk update \
+    && apk upgrade \
+    && apk add aspnetcore9-runtime gcompat \
+    && rm -rf /var/cache/apk/* \
+    && adduser -s /bin/false -u 1337 -h /app -D cncnet
+
+USER cncnet
+
+# Deploy cncnet-server
+RUN VERSION=$(wget -O /dev/null -qS "${BASE_URL}/${VERSION}" 2>&1 \
+       | awk \
+         -vVERSION=${VERSION} \
+         '$1 == "Location:"{ \
+          gsub(/.*\//,""); \
+          latest=$0 \
+         } END { \
+          print (latest != "" ? latest : VERSION) \
+         }') \
+    && ARCH=$(uname -m) \
+    && case "${ARCH}" in \
+        x86_64) \
+            FILE=cncnet-server-${VERSION}-net9.0-V2+V3-linux-x64.zip ;; \
+        aarch64) \
+            FILE=cncnet-server-${VERSION}-net9.0-V2+V3-linux-x64.zip ;; \
+        *) \
+            echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+    esac \
+    && wget -O /tmp/cncnet-server.zip "${BASE_URL}/download/${VERSION}/${FILE}" \
+    && unzip /tmp/cncnet-server.zip -d /app \
+    && chmod +x /app/cncnet-server \
+    && rm /tmp/cncnet-server.zip
+
+ENTRYPOINT ["/app/cncnet-server"]
+
+EXPOSE 50000/tcp 50000/udp 50001/tcp 50001/udp 8054/udp 3478/udp
+
+CMD ["--name", "My CnCNet tunnel"]
