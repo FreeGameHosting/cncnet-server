@@ -1,4 +1,4 @@
-FROM alpine:latest as builder
+FROM alpine:edge as builder
 
 ARG BASE_URL=https://github.com/Rans4ckeR/cncnet-server/releases
 ARG VERSION=latest
@@ -17,7 +17,7 @@ LABEL maintainer="Yorick Gruijthuijzen <yorick-1989@hotmail.com>" \
 # System prerequisites
 RUN apk update \
     && apk upgrade \
-    && apk add aspnetcore9-runtime gcompat \
+    && apk add aspnetcore10-runtime gcompat \
     && rm -rf /var/cache/apk/* \
     && adduser -s /bin/false -u 1337 -h /app -D cncnet
 
@@ -36,9 +36,9 @@ RUN VERSION=$(wget -O /dev/null -qS "${BASE_URL}/${VERSION}" 2>&1 \
     && ARCH=$(uname -m) \
     && case "${ARCH}" in \
         x86_64) \
-            FILE=cncnet-server-${VERSION}-net9.0-V2+V3-linux-x64.zip ;; \
+            FILE=cncnet-server-${VERSION}-net10.0-V2+V3-linux-x64.zip ;; \
         aarch64) \
-            FILE=cncnet-server-${VERSION}-net9.0-V2+V3-linux-x64.zip ;; \
+            FILE=cncnet-server-${VERSION}-net10.0-V2+V3-linux-x64.zip ;; \
         *) \
             echo "Unsupported architecture: $ARCH" && exit 1 ;; \
     esac \
